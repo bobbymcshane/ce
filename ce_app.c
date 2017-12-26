@@ -186,7 +186,7 @@ void ce_app_update_terminal_view(CeApp_t* app){
 }
 
 CeComplete_t* ce_app_is_completing(CeApp_t* app){
-     if(app->input_complete_func && app->input_complete.count) return &app->input_complete;
+     if(app->input_complete_func && app->input_complete.element_count) return &app->input_complete;
      return NULL;
 }
 
@@ -267,13 +267,7 @@ void ce_syntax_highlight_completions(CeView_t* view, CeRangeList_t* highlight_ra
      if(complete->current_match) match_len = strlen(complete->current_match);
 
      // figure out which line to highlight
-     int64_t selected = 0;
-     for(int64_t i = 0; i < complete->count; i++){
-          if(complete->elements[i].match){
-               if(i == complete->current) break;
-               selected++;
-          }
-     }
+     int64_t selected = complete->current;
 
      for(int64_t y = min; y <= max; ++y){
           char* line = view->buffer->lines[y];
@@ -685,7 +679,7 @@ void complete_files(CeComplete_t* complete, const char* line, const char* base_d
 
      // check for exact match
      bool exact_match = true;
-     if(complete->count != file_count){
+     if(complete->element_count != file_count){
           exact_match = false;
      }else{
           for(int64_t i = 0; i < file_count; i++){
@@ -720,22 +714,18 @@ void build_complete_list(CeBuffer_t* buffer, CeComplete_t* complete){
      char line[256];
      int64_t cursor = 0;
      int max_string_len = 0;
-     for(int64_t i = 0; i < complete->count; i++){
-          if(complete->elements[i].match){
-               int len = strlen(complete->elements[i].string);
-               if(len > max_string_len) max_string_len = len;
-          }
+     for(int64_t i = 0; i < complete->match_count; i++){
+          int len = strlen(complete->matches[i].string);
+          if(len > max_string_len) max_string_len = len;
      }
-     for(int64_t i = 0; i < complete->count; i++){
-          if(complete->elements[i].match){
-               if(i == complete->current) cursor = buffer->line_count;
-               if(complete->elements[i].description){
-                    snprintf(line, 256, "%-*s : %s", max_string_len, complete->elements[i].string, complete->elements[i].description);
-               }else{
-                    snprintf(line, 256, "%s", complete->elements[i].string);
-               }
-               buffer_append_on_new_line(buffer, line);
+     for(int64_t i = 0; i < complete->match_count; i++){
+          if(i == complete->current) cursor = buffer->line_count;
+          if(complete->matches[i].description){
+               snprintf(line, 256, "%-*s : %s", max_string_len, complete->matches[i].string, complete->matches[i].description);
+          }else{
+               snprintf(line, 256, "%s", complete->matches[i].string);
           }
+          buffer_append_on_new_line(buffer, line);
      }
 
      // TODO: figure out why we have to account for this case
@@ -1162,15 +1152,15 @@ bool ce_app_apply_completion(CeApp_t* app){
      CeComplete_t* complete = ce_app_is_completing(app);
      if(app->vim.mode == CE_VIM_MODE_INSERT && complete){
           if(complete->current >= 0){
-               int64_t completion_len = strlen(complete->elements[complete->current].string);
+               int64_t completion_len = strlen(complete->matches[complete->current].string);
                int64_t input_len = strlen(app->input_view.buffer->lines[app->input_view.cursor.y]);
                int64_t input_offset = 0;
                if(input_len > completion_len) input_offset = input_len - completion_len;
-               if(strcmp(complete->elements[complete->current].string, app->input_view.buffer->lines[app->input_view.cursor.y] + input_offset) == 0){
+               if(strcmp(complete->matches[complete->current].string, app->input_view.buffer->lines[app->input_view.cursor.y] + input_offset) == 0){
                     return false;
                }
 
-               char* insertion = strdup(complete->elements[complete->current].string);
+               char* insertion = strdup(complete->matches[complete->current].string);
                int64_t insertion_len = strlen(insertion);
                CePoint_t delete_point = app->input_view.cursor;
                if(complete->current_match){

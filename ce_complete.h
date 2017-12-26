@@ -8,12 +8,13 @@
 typedef struct{
      char* string;
      char* description;
-     bool match;
 }CeCompleteElement_t;
 
 typedef struct{
      CeCompleteElement_t* elements;
-     int64_t count;
+     int64_t element_count;
+     CeCompleteElement_t* matches;
+     int64_t match_count;
      char* current_match;
      int64_t current;
 }CeComplete_t;

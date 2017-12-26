@@ -1,5 +1,6 @@
 #include "ce_complete.h"
 
+#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -15,103 +16,113 @@ bool ce_complete_init(CeComplete_t* complete, const char** strings, const char**
                complete->elements[i].description = strdup(descriptions[i]);
           }
           if(!complete->elements[i].string) return false;
-          complete->elements[i].match = true;
      }
 
-     complete->count = string_count;
+     complete->element_count = string_count;
+     complete->matches = complete->elements;
+     complete->match_count = complete->element_count;
      return true;
+}
+
+void _free_matches(CeComplete_t* complete){
+     // if matches doesn't just point to elements, free its elements
+     if(complete->matches != complete->elements){
+          for(int64_t i = 0; i < complete->match_count; i++){
+               free(complete->matches[i].string);
+               free(complete->matches[i].description);
+          }
+          free(complete->matches);
+     }
+     complete->matches = NULL;
+     complete->match_count = 0;
 }
 
 void ce_complete_reset(CeComplete_t* complete){
      free(complete->current_match);
      complete->current_match = NULL;
-     complete->current = 0;
 
-     for(int64_t i = 0; i < complete->count; i++){
-          complete->elements[i].match = true;
+     _free_matches(complete);
+     complete->matches = complete->elements;
+     complete->match_count = complete->element_count;
+     complete->current = 0;
+}
+
+// add match to the beginning of the match list
+static void _prepend_match(CeComplete_t* complete, const char* match, const char* description){
+     // we should not have more matches than elements
+     assert(complete->match_count < complete->element_count);
+     // shift all elements down one
+     memmove(&complete->matches[1], complete->matches, complete->match_count * sizeof(*complete->matches));
+     complete->matches[0].string = strdup(match);
+     if( description ) complete->matches[0].description = strdup(description);
+     complete->match_count++;
+}
+
+// add match to the end of the match list
+static void _append_match(CeComplete_t* complete, const char* match, const char* description){
+     // we should not have more matches than elements
+     assert(complete->match_count < complete->element_count);
+     complete->matches[complete->match_count].string = strdup(match);
+     if( description ) complete->matches[complete->match_count].description = strdup(description);
+     complete->match_count++;
+}
+
+void _default_match(CeComplete_t* complete, const char* match){
+     for(int64_t i = 0; i < complete->element_count; i++){
+          const char* str = strstr(complete->elements[i].string, match);
+          if(str != NULL){
+               // the best matches go at the beginning
+               if(strcmp(match, complete->elements[i].string) == 0)
+                    _prepend_match(complete, complete->elements[i].string, complete->elements[i].description);
+               else _append_match(complete, complete->elements[i].string, complete->elements[i].description);
+          }
      }
 }
 
+void _match_with_fzf(CeComplete_t* complete, const char* match){
+}
+
 void ce_complete_match(CeComplete_t* complete, const char* match){
-     if(complete->count == 0) return;
+     if(complete->element_count == 0) return;
+
      if(strlen(match)){
-          for(int64_t i = 0; i < complete->count; i++){
-               const char* str = strstr(complete->elements[i].string, match);
-               complete->elements[i].match = (str != NULL);
-
-               // any options that are an identical match, override the current selection
-               if(strcmp(match, complete->elements[i].string) == 0) complete->current = i;
-          }
+          _free_matches(complete);
+          complete->matches = calloc(complete->element_count, sizeof(*complete->matches));
+          _default_match(complete, match);
      }else{
-          for(int64_t i = 0; i < complete->count; i++){
-               complete->elements[i].match = true;
-          }
+          // filter string is empty. all options are matches
+          ce_complete_reset(complete);
      }
 
-     // if our current no longer matches, find another that matches
-     if(complete->current >= 0){
-          if(!complete->elements[complete->current].match){
-               bool found_match = false;
-
-               for(int64_t i = complete->current + 1; i != complete->current; i++){
-                    if(i >= complete->count) i = 0;
-                    if(complete->elements[i].match){
-                         complete->current = i;
-                         found_match = true;
-                         break;
-                    }
-
-                    if(i == 0 && complete->current == 0) break;
-               }
-
-               // if no matches, use invalid index
-               if(!found_match) complete->current = -1;
-          }
-     }else{
-          for(int64_t i = 0; i < complete->count; i++){
-               if(complete->elements[i].match){
-                    complete->current = i;
-                    break;
-               }
-          }
-     }
-
-     if(complete->current >= 0){
+     if(complete->match_count > 0){
+          complete->current = 0;
           free(complete->current_match);
           complete->current_match = strdup(match);
+     } else {
+          // no matches found!
+          complete->current = -1;
      }
 }
 
 void ce_complete_next_match(CeComplete_t* complete){
-     if(complete->current < 0) return;
+     if(complete->current < 0 || !complete->match_count) return;
 
-     for(int64_t i = complete->current + 1; i != complete->current; i++){
-          if(i >= complete->count) i = 0;
-          if(complete->elements[i].match){
-               complete->current = i;
-               break;
-          }
-
-          if(i == 0 && complete->current == 0) break;
+     complete->current++;
+     if(complete->current >= complete->match_count){
+          complete->match_count = 0;
      }
 }
 
 void ce_complete_previous_match(CeComplete_t* complete){
-     if(complete->current < 0) return;
+     if(complete->current < 0 || !complete->match_count) return;
 
-     for(int64_t i = complete->current - 1; i != complete->current; i--){
-          if(i < 0) i = complete->count - 1;
-          if(complete->elements[i].match){
-               complete->current = i;
-               break;
-          }
-
-          if(i == complete->count - 1 && complete->current == complete->count - 1) break;
-     }
+     complete->current = complete->current ? complete->current - 1 : complete->match_count - 1;
 }
 
 void ce_complete_free(CeComplete_t* complete){
-     for(int64_t i = 0; i < complete->count; i++){
+     _free_matches(complete);
+
+     for(int64_t i = 0; i < complete->element_count; i++){
           free(complete->elements[i].string);
           free(complete->elements[i].description);
      }
