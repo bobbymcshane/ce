@@ -1,4 +1,5 @@
 #include "ce_complete.h"
+#include "ce_subprocess.h"
 
 #include <assert.h>
 #include <string.h>
@@ -80,6 +81,36 @@ void _default_match(CeComplete_t* complete, const char* match){
 }
 
 void _match_with_fzf(CeComplete_t* complete, const char* match){
+     CeSubprocess_t fzf;
+     {
+          char command[BUFSIZ];
+          snprintf(command, sizeof(command), "fzf -f'%s'", match);
+          bool success = ce_subprocess_open(&fzf, command);
+          assert(success);
+     }
+
+     {
+          // send elements to fzf to filter and rank
+          for(int64_t i = 0; i < complete->element_count; i++){
+               fprintf(fzf.stdin, "%s\n", complete->elements[i].string);
+          }
+
+          // close stdin to indicate we have sent all entries
+          ce_subprocess_close_stdin(&fzf);
+     }
+
+     {
+          // read filtered elements back from fzf
+          char element[BUFSIZ];
+          while(fgets(element, sizeof(element), fzf.stdout)){
+               assert(element[strlen(element)-1] == '\n');
+               element[strlen(element)-1] = '\0';
+               // TODO: get descriptions as well
+               _append_match(complete, element, NULL);
+          }
+     }
+
+     ce_subprocess_close(&fzf);
 }
 
 void ce_complete_match(CeComplete_t* complete, const char* match){
@@ -88,7 +119,11 @@ void ce_complete_match(CeComplete_t* complete, const char* match){
      if(strlen(match)){
           _free_matches(complete);
           complete->matches = calloc(complete->element_count, sizeof(*complete->matches));
+          #if 0
           _default_match(complete, match);
+          #else
+          _match_with_fzf(complete, match);
+          #endif
      }else{
           // filter string is empty. all options are matches
           ce_complete_reset(complete);

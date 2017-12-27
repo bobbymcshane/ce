@@ -1464,6 +1464,8 @@ static void* run_shell_command_and_output_to_buffer(void* data){
      ce_buffer_insert_string(shell_command_data->buffer, bytes, ce_buffer_end_point(shell_command_data->buffer));
      shell_command_data->buffer->status = CE_BUFFER_STATUS_READONLY;
      *shell_command_data->ready_to_draw = true;
+     close(input_fd);
+     close(output_fd);
      pthread_cleanup_pop(1);
      return NULL;
 }
