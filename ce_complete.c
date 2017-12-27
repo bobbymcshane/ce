@@ -2,8 +2,9 @@
 #include "ce_subprocess.h"
 
 #include <assert.h>
-#include <string.h>
+#include <inttypes.h>
 #include <stdlib.h>
+#include <string.h>
 
 bool ce_complete_init(CeComplete_t* complete, const char** strings, const char** descriptions, int64_t string_count){
      ce_complete_free(complete);
@@ -55,7 +56,7 @@ static void _prepend_match(CeComplete_t* complete, const char* match, const char
      // shift all elements down one
      memmove(&complete->matches[1], complete->matches, complete->match_count * sizeof(*complete->matches));
      complete->matches[0].string = strdup(match);
-     if( description ) complete->matches[0].description = strdup(description);
+     if(description) complete->matches[0].description = strdup(description);
      complete->match_count++;
 }
 
@@ -82,9 +83,10 @@ void _default_match(CeComplete_t* complete, const char* match){
 
 void _match_with_fzf(CeComplete_t* complete, const char* match){
      CeSubprocess_t fzf;
+     const char description_delimiter = '\t';
      {
           char command[BUFSIZ];
-          snprintf(command, sizeof(command), "fzf -f'%s'", match);
+          snprintf(command, sizeof(command), "fzf -d'%c' -n1 -f'%s' -s%"PRId64, description_delimiter, match, complete->element_count);
           bool success = ce_subprocess_open(&fzf, command);
           assert(success);
      }
@@ -92,7 +94,11 @@ void _match_with_fzf(CeComplete_t* complete, const char* match){
      {
           // send elements to fzf to filter and rank
           for(int64_t i = 0; i < complete->element_count; i++){
-               fprintf(fzf.stdin, "%s\n", complete->elements[i].string);
+               if(complete->elements[i].description){
+                    fprintf(fzf.stdin, "%s%c%s\n", complete->elements[i].string, description_delimiter, complete->elements[i].description);
+               }else{
+                    fprintf(fzf.stdin, "%s\n", complete->elements[i].string);
+               }
           }
 
           // close stdin to indicate we have sent all entries
@@ -105,8 +111,14 @@ void _match_with_fzf(CeComplete_t* complete, const char* match){
           while(fgets(element, sizeof(element), fzf.stdout)){
                assert(element[strlen(element)-1] == '\n');
                element[strlen(element)-1] = '\0';
-               // TODO: get descriptions as well
-               _append_match(complete, element, NULL);
+
+               char* description = strchr(element, description_delimiter);
+               if(description){
+                    *description = '\0';
+                    description++;
+               }
+
+               _append_match(complete, element, description);
           }
      }
 
