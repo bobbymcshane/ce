@@ -1,5 +1,6 @@
 #include "ce.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -142,44 +143,65 @@ bool ce_buffer_load_file(CeBuffer_t* buffer, const char* filename){
      struct stat statbuf;
      if (stat(filename, &statbuf) != 0) return false;
      if(S_ISDIR(statbuf.st_mode)){
-          errno = EPERM;
-          return false;
-     }
+          // load directory buffer
+          DIR* directory = opendir(filename);
+          if(!directory){
+               ce_log("%s() opendir('%s') failed: '%s'\n", __FUNCTION__, filename, strerror(errno));
+               return false;
+          }
 
-     // read the entire file
-     size_t content_size;
-     char* contents = NULL;
-
-     FILE* file = fopen(filename, "rb");
-     if(!file){
-          ce_log("%s() fopen('%s', 'rb') failed: '%s'\n", __FUNCTION__, filename, strerror(errno));
-          return false;
-     }
-
-     fseek(file, 0, SEEK_END);
-     content_size = ftell(file);
-     fseek(file, 0, SEEK_SET);
-
-     contents = (char*)malloc(content_size + 1);
-     fread(contents, content_size, 1, file);
-     contents[content_size] = 0;
-
-     // strip the ending '\n'
-     if(contents[content_size - 1] == CE_NEWLINE) contents[content_size - 1] = 0;
-
-     if(!ce_buffer_load_string(buffer, contents, filename)){
-          return false;
-     }
-
-     fclose(file);
-
-     if(access(filename, W_OK) != 0){
+          if(buffer->lines) ce_buffer_free(buffer);
+          buffer->name = strdup(filename);
+          struct dirent* entry;
+          while ((entry = readdir(directory)) != NULL) {
+               if (entry->d_type == DT_DIR) {
+                    buffer->line_count++;
+                    buffer->lines = realloc(buffer->lines, buffer->line_count*sizeof(*buffer->lines));
+                    asprintf( &buffer->lines[buffer->line_count-1], "%s/", entry->d_name );
+               } else {
+                    buffer->line_count++;
+                    buffer->lines = realloc(buffer->lines, buffer->line_count*sizeof(*buffer->lines));
+                    buffer->lines[buffer->line_count-1] = strdup(entry->d_name);
+               }
+          }
+          closedir(directory);
           buffer->status = CE_BUFFER_STATUS_READONLY;
      }else{
-          buffer->status = CE_BUFFER_STATUS_NONE;
-     }
+          // read the entire file
+          size_t content_size;
+          char* contents = NULL;
 
-     free(contents);
+          FILE* file = fopen(filename, "rb");
+          if(!file){
+               ce_log("%s() fopen('%s', 'rb') failed: '%s'\n", __FUNCTION__, filename, strerror(errno));
+               return false;
+          }
+
+          fseek(file, 0, SEEK_END);
+          content_size = ftell(file);
+          fseek(file, 0, SEEK_SET);
+
+          contents = (char*)malloc(content_size + 1);
+          fread(contents, content_size, 1, file);
+          contents[content_size] = 0;
+
+          // strip the ending '\n'
+          if(contents[content_size - 1] == CE_NEWLINE) contents[content_size - 1] = 0;
+
+          if(!ce_buffer_load_string(buffer, contents, filename)){
+               return false;
+          }
+
+          fclose(file);
+
+          if(access(filename, W_OK) != 0){
+               buffer->status = CE_BUFFER_STATUS_READONLY;
+          }else{
+               buffer->status = CE_BUFFER_STATUS_NONE;
+          }
+
+          free(contents);
+     }
      ce_log("%s() loaded '%s'\n", __FUNCTION__, filename);
      return true;
 }
