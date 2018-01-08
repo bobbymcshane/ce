@@ -222,8 +222,10 @@ void user_config_free(CeUserConfig_t* user_config);
 void update_terminal_last_goto_using_cursor(CeTerminal_t* terminal);
 
 CeTerminal_t* ce_terminal_list_new_terminal(CeTerminalList_t* terminal_list, int width, int height, int64_t scroll_back);
+CeTerminal_t* ce_terminal_list_new_terminal_command(CeTerminalList_t* terminal_list, int width, int height, int64_t scroll_back, const char* cmd, CeTerminalCommand_t* command);
 CeTerminal_t* ce_buffer_in_terminal_list(CeBuffer_t* buffer, CeTerminalList_t* terminal_list);
 CeTerminal_t* create_terminal(CeApp_t* app, int width, int height);
+CeTerminal_t* run_terminal_command(CeApp_t* app, int width, int height, const char* cmd, CeTerminalCommand_t* command);
 void ce_terminal_list_free_terminal(CeTerminalList_t* terminal_list, CeTerminal_t* terminal);
 void ce_terminal_list_free(CeTerminalList_t* terminal_list);
 

@@ -5,10 +5,6 @@
 
 typedef struct{
      pid_t pid;
-     // you should either use the file descriptor, or the FILE pointer.
-     // do not mix and match
-     int stdin_fd;
-     int stdout_fd;
      FILE *stdin;
      FILE *stdout;
 }CeSubprocess_t;

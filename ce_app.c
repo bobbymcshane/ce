@@ -895,16 +895,7 @@ void update_terminal_last_goto_using_cursor(CeTerminal_t* terminal){
      buffer_data->last_goto_destination = terminal->cursor.y + terminal->start_line;
 }
 
-CeTerminal_t* ce_terminal_list_new_terminal(CeTerminalList_t* terminal_list, int width, int height, int64_t scroll_back){
-     CeTerminalNode_t* node = calloc(1, sizeof(*node));
-
-     const int max_name_len = 64;
-     char name[max_name_len];
-     terminal_list->unique_id++;
-     snprintf(name, max_name_len, "terminal_%ld", terminal_list->unique_id);
-
-     ce_terminal_init(&node->terminal, width, height, scroll_back, name);
-
+static void _add_node_to_list(CeTerminalList_t* terminal_list, CeTerminalNode_t* node){
      if(terminal_list->tail){
           terminal_list->tail->next = node;
      }
@@ -915,6 +906,28 @@ CeTerminal_t* ce_terminal_list_new_terminal(CeTerminalList_t* terminal_list, int
           terminal_list->head = terminal_list->tail;
      }
 
+}
+
+#define max_name_len 64
+static const char* _list_uid(CeTerminalList_t* terminal_list, char name[max_name_len]){
+     terminal_list->unique_id++;
+     snprintf(name, max_name_len, "terminal_%ld", terminal_list->unique_id);
+     return name;
+}
+
+CeTerminal_t* ce_terminal_list_new_terminal(CeTerminalList_t* terminal_list, int width, int height, int64_t scroll_back){
+     CeTerminalNode_t* node = calloc(1, sizeof(*node));
+     char name[max_name_len];
+     ce_terminal_init(&node->terminal, width, height, scroll_back, _list_uid(terminal_list, name));
+     _add_node_to_list(terminal_list, node);
+     return &node->terminal;
+}
+
+CeTerminal_t* ce_terminal_list_new_terminal_command(CeTerminalList_t* terminal_list, int width, int height, int64_t scroll_back, const char* cmd, CeTerminalCommand_t* command){
+     CeTerminalNode_t* node = calloc(1, sizeof(*node));
+     char name[max_name_len];
+     ce_terminal_command_init(command, &node->terminal, cmd, width, height, scroll_back, _list_uid(terminal_list, name));
+     _add_node_to_list(terminal_list, node);
      return &node->terminal;
 }
 
@@ -930,8 +943,7 @@ CeTerminal_t* ce_buffer_in_terminal_list(CeBuffer_t* buffer, CeTerminalList_t* t
      return NULL;
 }
 
-CeTerminal_t* create_terminal(CeApp_t* app, int width, int height){
-     CeTerminal_t* terminal = ce_terminal_list_new_terminal(&app->terminal_list, width, height, app->config_options.terminal_scroll_back);
+static void _init_terminal(CeApp_t* app, CeTerminal_t* terminal){
      ce_buffer_node_insert(&app->buffer_node_head, terminal->buffer);
 
      terminal->lines_buffer->app_data = calloc(1, sizeof(CeAppBufferData_t));
@@ -943,7 +955,17 @@ CeTerminal_t* create_terminal(CeApp_t* app, int width, int height){
      buffer_data = terminal->alternate_lines_buffer->app_data;
      buffer_data->syntax_function = ce_syntax_highlight_terminal;
      terminal->alternate_lines_buffer->syntax_data = terminal;
+}
 
+CeTerminal_t* create_terminal(CeApp_t* app, int width, int height){
+     CeTerminal_t* terminal = ce_terminal_list_new_terminal(&app->terminal_list, width, height, app->config_options.terminal_scroll_back);
+     _init_terminal(app, terminal);
+     return terminal;
+}
+
+CeTerminal_t* run_terminal_command(CeApp_t* app, int width, int height, const char* cmd, CeTerminalCommand_t* command){
+     CeTerminal_t* terminal = ce_terminal_list_new_terminal_command(&app->terminal_list, width, height, app->config_options.terminal_scroll_back, cmd, command);
+     _init_terminal(app, terminal);
      return terminal;
 }
 

@@ -149,6 +149,17 @@ typedef struct{
      bool killed;
 }CeTerminal_t;
 
+typedef struct{
+     FILE* stdin;
+     FILE* stdout;
+}CeTerminalCommand_t;
+
+// spawn a new terminal to run the specified shell command providing FILE pointers to the command's stdin/stdout
+bool ce_terminal_command_init(CeTerminalCommand_t* command, CeTerminal_t* terminal, const char* cmd, int64_t width, int64_t height, int64_t line_count, const char* buffer_name);
+// signal to the command that you are done providing it input by closing stdin
+void ce_terminal_command_close_stdin(CeTerminalCommand_t* command);
+void ce_terminal_command_free(CeTerminalCommand_t* command);
+
 bool ce_terminal_init(CeTerminal_t* terminal, int64_t width, int64_t height, int64_t line_count, const char* buffer_name);
 void ce_terminal_resize(CeTerminal_t* terminal, int64_t width, int64_t height);
 void ce_terminal_free(CeTerminal_t* terminal);

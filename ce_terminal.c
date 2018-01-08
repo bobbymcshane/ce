@@ -1417,6 +1417,93 @@ static bool tty_create(int rows, int columns, pid_t* pid, int* tty_file_descript
      return true;
 }
 
+static bool command_tty_create(const char* to_run, int rows, int columns, pid_t* pid, int* tty_file_descriptor, FILE** command_stdin, FILE**command_stdout){
+     int master_file_descriptor;
+     int slave_file_descriptor;
+     struct winsize window_size = {rows, columns, 0, 0};
+
+     if(openpty(&master_file_descriptor, &slave_file_descriptor, NULL, NULL, &window_size) < 0){
+          ce_log("openpty() failed: '%s'\n", strerror(errno));
+          return false;
+     }
+
+     int input_fds[2];
+     int output_fds[2];
+
+     if(pipe(input_fds) != 0) return 0;
+     if(pipe(output_fds) != 0) return 0;
+
+     switch(*pid = fork()){
+     case -1:
+          ce_log("fork() failed\n");
+          break;
+     case 0:
+          setsid();
+
+          dup2(slave_file_descriptor, 0);
+          dup2(slave_file_descriptor, 1);
+          dup2(slave_file_descriptor, 2);
+
+          if(ioctl(slave_file_descriptor, TIOCSCTTY, NULL)){
+               ce_log("ioctl() TIOCSCTTY failed: '%s'\n", strerror(errno));
+               return false;
+          }
+
+          close(slave_file_descriptor);
+          close(master_file_descriptor);
+          // close the side of the pipe we won't use in the child process
+          close(input_fds[1]);
+          close(output_fds[0]);
+
+          {
+               const struct passwd* pw;
+               char* shell = getenv("SHELL");
+               if(!shell) shell = CE_TERMINAL_DEFAULT_SHELL;
+
+               pw = getpwuid(getuid());
+               if(pw == NULL){
+                    ce_log("getpwuid() failed: '%s'\n", strerror(errno));
+                    return false;
+               }
+
+               char* command;
+               asprintf(&command, "cat <&%d | %s >&%d", input_fds[0], to_run, output_fds[1]);
+               char** args = (char *[]){shell, "-c", command, NULL};
+
+               unsetenv("COLUMNS");
+               unsetenv("LINES");
+               unsetenv("TERMCAP");
+               setenv("LOGNAME", pw->pw_name, 1);
+               setenv("USER", pw->pw_name, 1);
+               setenv("SHELL", shell, 1);
+               setenv("HOME", pw->pw_dir, 1);
+               setenv("TERM", CE_TERMINAL_NAME, 1);
+
+               signal(SIGCHLD, SIG_DFL);
+               signal(SIGHUP, SIG_DFL);
+               signal(SIGINT, SIG_DFL);
+               signal(SIGQUIT, SIG_DFL);
+               signal(SIGTERM, SIG_DFL);
+               signal(SIGALRM, SIG_DFL);
+
+               execvp(shell, args);
+               _exit(1);
+               }
+          break;
+     default:
+          close(slave_file_descriptor);
+          *tty_file_descriptor = master_file_descriptor;
+          close(input_fds[0]);
+          close(output_fds[1]);
+          *command_stdin = fdopen(input_fds[1], "w");
+          *command_stdout = fdopen(output_fds[0], "r");
+          signal(SIGCHLD, handle_signal_child);
+          break;
+     }
+
+     return true;
+}
+
 static void terminal_echo(CeTerminal_t* terminal, CeRune_t rune){
      if(is_controller(rune)){
           if(rune & 0x80){
@@ -1432,7 +1519,7 @@ static void terminal_echo(CeTerminal_t* terminal, CeRune_t rune){
      terminal_put(terminal, rune);
 }
 
-bool ce_terminal_init(CeTerminal_t* terminal, int64_t width, int64_t height, int64_t line_count, const char* buffer_name){
+static void _init_terminal(CeTerminal_t* terminal, int64_t width, int64_t height, int64_t line_count, const char* buffer_name) {
      terminal->columns = width;
      terminal->rows = height;
      terminal->top = 0;
@@ -1484,7 +1571,10 @@ bool ce_terminal_init(CeTerminal_t* terminal, int64_t width, int64_t height, int
 
      terminal->tabs = calloc(terminal->columns, sizeof(*terminal->tabs));
      terminal_reset(terminal);
+}
 
+bool ce_terminal_init(CeTerminal_t* terminal, int64_t width, int64_t height, int64_t line_count, const char* buffer_name){
+     _init_terminal(terminal, width, height, line_count, buffer_name);
      if(!tty_create(terminal->rows, terminal->columns, &terminal->pid, &terminal->file_descriptor)){
           return false;
      }
@@ -1496,6 +1586,40 @@ bool ce_terminal_init(CeTerminal_t* terminal, int64_t width, int64_t height, int
      }
 
      return true;
+}
+
+bool ce_terminal_command_init(CeTerminalCommand_t* command, CeTerminal_t* terminal, const char* cmd, int64_t width, int64_t height, int64_t line_count, const char* buffer_name){
+     _init_terminal(terminal, width, height, line_count, buffer_name);
+
+     if(!command_tty_create(cmd, terminal->rows, terminal->columns, &terminal->pid, &terminal->file_descriptor, &command->stdin, &command->stdout)){
+          return false;
+     }
+
+     int rc = pthread_create(&terminal->thread, NULL, tty_reader, terminal);
+     if(rc != 0){
+          ce_log("pthread_create() failed: '%s'\n", strerror(errno));
+          return false;
+     }
+     return true;
+}
+
+static void _close_file(FILE **file){
+     FILE *to_close = *file;
+     if(to_close == NULL) return;
+     *file = NULL;
+     // because fclose() is a cancellation point for pthread, I need to NULL
+     // stdin prior to calling fclose() so we are guaranteed we don't do it
+     // again in a cleanup handler
+     fclose(to_close);
+}
+
+void ce_terminal_command_close_stdin(CeTerminalCommand_t* command){
+     _close_file(&command->stdin);
+}
+
+void ce_terminal_command_free(CeTerminalCommand_t* command){
+     _close_file(&command->stdin);
+     _close_file(&command->stdout);
 }
 
 void ce_terminal_resize(CeTerminal_t* terminal, int64_t width, int64_t height){

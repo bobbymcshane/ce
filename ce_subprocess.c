@@ -37,14 +37,15 @@ static pid_t bidirectional_popen(const char* cmd, int* in_fd, int* out_fd){
 }
 
 bool ce_subprocess_open(CeSubprocess_t* subprocess, const char* command){
-     subprocess->pid = bidirectional_popen(command, &subprocess->stdin_fd, &subprocess->stdout_fd);
+     int stdin_fd, stdout_fd;
+     subprocess->pid = bidirectional_popen(command, &stdin_fd, &stdout_fd);
      if(subprocess->pid == 0) return false;
-     subprocess->stdin = fdopen(subprocess->stdin_fd, "w");
-     subprocess->stdout = fdopen(subprocess->stdout_fd, "r");
+     subprocess->stdin = fdopen(stdin_fd, "w");
+     subprocess->stdout = fdopen(stdout_fd, "r");
      return true;
 }
 
-void _close_file(FILE **file){
+static void _close_file(FILE **file){
      FILE *to_close = *file;
      if(to_close == NULL) return;
      *file = NULL;
@@ -57,7 +58,6 @@ void _close_file(FILE **file){
 void ce_subprocess_close_stdin(CeSubprocess_t* subprocess){
      if(!subprocess->stdin) return;
      _close_file(&subprocess->stdin);
-     subprocess->stdin_fd = 0;
 }
 
 void ce_subprocess_kill(CeSubprocess_t* subprocess, int signal){
