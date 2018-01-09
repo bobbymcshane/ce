@@ -104,6 +104,7 @@ typedef struct{
 typedef bool CeInputCompleteFunc(struct CeApp_t*, CeBuffer_t* input_buffer);
 
 typedef struct CeApp_t{
+     pthread_mutex_t mutex;
      CeRect_t terminal_rect;
      CeVim_t vim;
      CeVimVisualSave_t vim_visual_save;

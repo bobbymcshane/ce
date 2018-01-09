@@ -1472,6 +1472,9 @@ int main(int argc, char** argv){
      // TODO: allocate this on the heap when/if it gets too big?
      CeApp_t app = {};
 
+     // init the app mutex
+     pthread_mutex_init(&app.mutex, NULL);
+
      // init log buffer
      {
           g_ce_log_buffer = new_buffer();
@@ -1814,6 +1817,13 @@ int main(int argc, char** argv){
                }
           }
 
+          int key = ERR;
+
+          if(check_stdin) key = getch();
+
+          // take application lock during this main loop
+          pthread_mutex_lock(&app.mutex);
+
           // figure out our current view rect
           CeView_t* view = NULL;
           CeLayout_t* tab_layout = app.tab_list_layout->tab_list.current;
@@ -1825,10 +1835,6 @@ int main(int argc, char** argv){
                view = &tab_layout->tab.current->view;
                break;
           }
-
-          int key = ERR;
-
-          if(check_stdin) key = getch();
 
           // TODO: compress with below
           if(view){
@@ -1964,6 +1970,8 @@ int main(int argc, char** argv){
           }
 
           draw(&app);
+
+          pthread_mutex_unlock(&app.mutex);
      }
 
      // cleanup

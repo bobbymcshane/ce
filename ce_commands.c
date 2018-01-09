@@ -7,6 +7,8 @@
 #include <ncurses.h>
 #include <errno.h>
 
+int g_command_ready_fds[2];
+
 typedef struct{
      CeLayout_t* tab_layout;
      CeView_t* view;
@@ -590,6 +592,80 @@ CeCommandStatus_t command_new_terminal(CeCommand_t* command, void* user_data){
                                 &app->config_options, &app->terminal_list, &app->last_terminal, true);
           app->vim.mode = CE_VIM_MODE_INSERT;
           app->last_terminal = terminal;
+     }
+
+     return CE_COMMAND_SUCCESS;
+}
+
+typedef struct{
+     CeApp_t* app;
+     CeTerminalCommand_t command;
+     // TODO: I think if I put the view in here I need to somehow make sure it
+     // doesn't get destroyed while my command is running. Is there some way to do that??
+     CeView_t* view;
+}TerminalCommandContext_t;
+
+void draw(CeApp_t* app);
+// read from the fzf command's stdout and open each filename we receive
+static void* _fzf_files(void* user_data){
+     // detach this thread because we don't care about its return code or
+     // knowing when it is finished
+     pthread_detach(pthread_self());
+
+     TerminalCommandContext_t* context = user_data;
+     CeApp_t* app = context->app;
+     char file_to_open[PATH_MAX];
+
+     while(fgets(file_to_open, sizeof(file_to_open), context->command.stdout)){
+          strtok(file_to_open, "\n");
+          ce_log("got a file!! %s\n", file_to_open);
+          pthread_mutex_lock(&app->mutex);
+          load_file_into_view(&app->buffer_node_head, context->view, &app->config_options,
+                              &app->vim, &app->multiple_cursors, &app->terminal_list,
+                              &app->last_terminal, true, file_to_open);
+          draw(app);
+          pthread_mutex_unlock(&app->mutex);
+     }
+     ce_log("fzf files thread exiting\n");
+     free(context);
+     return NULL;
+}
+
+CeCommandStatus_t command_fzf_files(CeCommand_t* command, void* user_data){
+     if(command->arg_count != 0) return CE_COMMAND_PRINT_HELP;
+
+     CeApp_t* app = user_data;
+     CommandContext_t command_context = {};
+     if(!get_command_context(app, &command_context)) return CE_COMMAND_NO_ACTION;
+
+     int64_t width = ce_view_width(command_context.view);
+     int64_t height = ce_view_height(command_context.view);
+
+     TerminalCommandContext_t* context = calloc(1, sizeof(*context));
+     context->app = app;
+     // TODO: how do I make sure this view doesn't get deleted before I go to
+     // stick a buffer in it in my other thread
+     context->view = command_context.view;
+
+     CeTerminal_t* terminal = run_terminal_command(app, width, height, "find * -type f | fzf", &context->command);
+     if(terminal){
+          ce_view_switch_buffer(command_context.view, terminal->buffer, &app->vim, &app->multiple_cursors,
+                                &app->config_options, &app->terminal_list, &app->last_terminal, true);
+          app->vim.mode = CE_VIM_MODE_INSERT;
+          app->last_terminal = terminal;
+
+          // the file list will be populated from the find command in this case
+          // so we don't need stdin
+          ce_terminal_command_close_stdin(&context->command);
+
+          pthread_t thread;
+          int rc = pthread_create(&thread, NULL, _fzf_files, context);
+          if(rc != 0){
+               ce_log("pthread_create() failed: '%s'\n", strerror(rc));
+               return false;
+          }
+     }else{
+          free(context);
      }
 
      return CE_COMMAND_SUCCESS;

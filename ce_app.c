@@ -1086,6 +1086,7 @@ void ce_app_init_default_commands(CeApp_t* app){
           {command_line_number, "line_number", "change line number mode: 'none', 'absolute', 'relative', or 'both'"},
           {command_load_file, "load_file", "load a file (optionally specified)"},
           {command_man_page_on_word_under_cursor, "man_page_on_word_under_cursor", "run man on the word under the cursor"},
+          {command_fzf_files, "fzf_files", "run fzf"},
           {command_new_buffer, "new_buffer", "create a new buffer"},
           {command_new_tab, "new_tab", "create a new tab"},
           {command_new_terminal, "new_terminal", "open a new terminal and show it in the current view"},
@@ -1580,7 +1581,7 @@ bool ce_app_run_shell_command(CeApp_t* app, const char* command, CeLayout_t* tab
 
      int rc = pthread_create(&app->shell_command_thread, NULL, run_shell_command_and_output_to_buffer, shell_command_data);
      if(rc != 0){
-          ce_log("pthread_create() failed: '%s'\n", strerror(errno));
+          ce_log("pthread_create() failed: '%s'\n", strerror(rc));
           return false;
      }
 
