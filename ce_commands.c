@@ -647,7 +647,7 @@ CeCommandStatus_t command_fzf_files(CeCommand_t* command, void* user_data){
      // stick a buffer in it in my other thread
      context->view = command_context.view;
 
-     CeTerminal_t* terminal = run_terminal_command(app, width, height, "find * -type f | fzf", &context->command);
+     CeTerminal_t* terminal = run_terminal_command(app, width, height, "find * -type f -exec grep -Iq . {} \\; -and -print | fzf", &context->command);
      if(terminal){
           ce_view_switch_buffer(command_context.view, terminal->buffer, &app->vim, &app->multiple_cursors,
                                 &app->config_options, &app->terminal_list, &app->last_terminal, true);
